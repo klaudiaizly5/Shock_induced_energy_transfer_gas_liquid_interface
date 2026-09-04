@@ -1,0 +1,141 @@
+# =============================================================================
+# Shock-induced energy transfer across a gas-liquid interface
+# 7 bar nitrogen--n-dodecane interface equilibration
+#
+# LAMMPS input script used to develop the natural equilibrium interface
+# between liquid n-dodecane and nitrogen prior to shock interaction.
+#
+# Atom types:
+#   1 = CH3 united-atom site (n-dodecane)
+#   2 = CH2 united-atom site (n-dodecane)
+#   3 = N site (two-site N2 model)
+#
+# Notes:
+#   - units real
+#   - timestep = 1.0 fs
+#   - x and y periodic; z non-periodic
+#   - reflecting walls are used at zlo and zhi
+#   - system is equilibrated at 300 K using NVT
+#   - long-range LJ tail corrections are disabled
+#   - unlike LJ interactions are generated using arithmetic mixing
+#
+# Required input data file:
+#   dodecane_nitrogen_int_7bar_input.data
+#
+# Replace the filename below if your actual starting data file has a
+# different name.
+# =============================================================================
+
+clear
+
+# -----------------------------------------------------------------------------
+# Simulation settings
+# -----------------------------------------------------------------------------
+units       real
+dimension   3
+boundary    p p f
+atom_style  full
+
+package omp 1
+suffix omp
+
+neighbor     2.0 bin
+neigh_modify every 1 delay 0 check yes
+
+# -----------------------------------------------------------------------------
+# Interatomic potential
+# -----------------------------------------------------------------------------
+pair_style   lj/cut/omp 14.0
+pair_modify  mix arithmetic tail no
+
+bond_style      harmonic/omp
+angle_style     harmonic/omp
+dihedral_style  opls/omp
+
+# Exclude 1-2, 1-3 and 1-4 intramolecular LJ interactions
+special_bonds lj 0.0 0.0 0.0
+
+# -----------------------------------------------------------------------------
+# Initial gas--liquid configuration
+# -----------------------------------------------------------------------------
+read_data dodecane_nitrogen_int_7bar_input.data
+
+# -----------------------------------------------------------------------------
+# Force-field coefficients
+# -----------------------------------------------------------------------------
+
+# Lennard-Jones parameters: epsilon [kcal/mol], sigma [Angstrom]
+pair_coeff 1 1 0.194726 3.75
+pair_coeff 2 2 0.091402 3.95
+pair_coeff 3 3 0.071744 3.31786
+
+# Harmonic bonds: K [kcal/mol/Angstrom^2], r0 [Angstrom]
+# LAMMPS convention: E = K (r-r0)^2
+bond_coeff 1 315.0 1.54
+bond_coeff 2 1651.0 1.10
+
+# Harmonic angle: K [kcal/mol/rad^2], theta0 [degrees]
+angle_coeff 1 62.1 114.0
+
+# OPLS dihedral coefficients [kcal/mol]
+dihedral_coeff 1 1.4109 -0.2710 3.1447 0.0
+
+# -----------------------------------------------------------------------------
+# Time integration
+# -----------------------------------------------------------------------------
+timestep 1.0
+
+# -----------------------------------------------------------------------------
+# Groups
+# -----------------------------------------------------------------------------
+group nitrogen type 3
+group dodecane type 1 2
+
+# -----------------------------------------------------------------------------
+# Reflecting boundaries in the shock-normal direction
+# -----------------------------------------------------------------------------
+fix zwalls all wall/reflect zlo EDGE zhi EDGE units box
+
+# -----------------------------------------------------------------------------
+# NVT interface equilibration
+# -----------------------------------------------------------------------------
+fix nvt_eq all nvt temp 300.0 300.0 100.0
+
+# -----------------------------------------------------------------------------
+# Load balancing
+# -----------------------------------------------------------------------------
+balance 1.02 shift z 20 1.02
+fix load_balance all balance 1000 1.05 shift z 20 1.02
+
+# -----------------------------------------------------------------------------
+# Nitrogen density profile
+# 5 Angstrom bins along z are used to monitor development and convergence
+# of the natural nitrogen--n-dodecane interface.
+# -----------------------------------------------------------------------------
+compute bins all chunk/atom bin/1d z lower 5.0 units box
+
+fix profN nitrogen ave/chunk 100 10 1000 bins \
+    density/number \
+    file nitrogen_density_z_5A_7bar.dat
+
+# -----------------------------------------------------------------------------
+# Diagnostics
+# -----------------------------------------------------------------------------
+thermo_style custom step atoms temp press pe ke etotal density vol lx ly lz
+thermo 1000
+
+# Alternating restart files protect against loss of progress during a long run
+restart 100000 int_7bar_nvt_restart_1.restart int_7bar_nvt_restart_2.restart
+
+# -----------------------------------------------------------------------------
+# Interface-development run
+# 800000 steps x 1 fs = 800 ps
+# -----------------------------------------------------------------------------
+run 800000
+
+# -----------------------------------------------------------------------------
+# Final equilibrated interface
+# -----------------------------------------------------------------------------
+write_data dodecane_nitrogen_int_7bar_equilibrated.data
+
+print "7 bar nitrogen--n-dodecane interface equilibration complete."
